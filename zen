@@ -1,0 +1,455 @@
+// Cloudflare Worker Entry Point
+addEventListener('fetch', event => {
+    event.respondWith(handleRequest(event.request))
+  })
+  
+  // Default Beep Sound (Data URI - a simple short sine wave)
+  const defaultBeep = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU'+Array(1e3).join('1211'); // Simple short beep data URI
+  
+  // HTML, CSS, and JavaScript for the Timer App
+  const htmlContent = `
+  <!DOCTYPE html>
+  <html lang="zh-CN">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>禅意循环计时器</title>
+      <style>
+          :root {
+              --bg-color: #1a1a1a; /* 深灰背景 */
+              --text-color: #e0e0e0; /* 浅灰文字 */
+              --primary-color: #64a19d; /* 青绿色调 */
+              --secondary-color: #4a4a4a; /* 按钮背景 */
+              --accent-color: #f4a261; /* 强调色 (可选) */
+              --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          }
+  
+          body {
+              background-color: var(--bg-color);
+              color: var(--text-color);
+              font-family: var(--font-family);
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              min-height: 100vh;
+              margin: 0;
+              text-align: center;
+              transition: background-color 0.3s ease;
+          }
+  
+          .container {
+              background-color: #2a2a2a; /* 容器稍亮背景 */
+              padding: 30px 40px;
+              border-radius: 15px;
+              box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+              max-width: 400px;
+              width: 90%;
+          }
+  
+          h1 {
+              color: var(--primary-color);
+              margin-bottom: 20px;
+              font-weight: 300;
+          }
+  
+          #timer-display {
+              font-size: 4.5em; /* 大字体显示时间 */
+              margin-bottom: 30px;
+              font-weight: bold;
+              color: var(--text-color);
+              letter-spacing: 2px;
+              font-family: 'Courier New', Courier, monospace; /* 等宽字体更适合计时 */
+          }
+  
+          .controls {
+               margin-bottom: 15px; /* Add some space between control rows */
+               display: flex;
+               flex-wrap: wrap; /* Allow items to wrap */
+               justify-content: center;
+               align-items: center;
+          }
+  
+          .controls button, .controls input, .controls label {
+              margin: 8px 5px;
+              padding: 10px 18px;
+              border: none;
+              border-radius: 8px;
+              font-size: 1em;
+              cursor: pointer;
+              transition: background-color 0.3s ease, transform 0.1s ease;
+              vertical-align: middle; /* Align items vertically */
+          }
+  
+          .controls button {
+              background-color: var(--secondary-color);
+              color: var(--text-color);
+          }
+  
+          .controls button:hover {
+              background-color: #5a5a5a;
+          }
+  
+           .controls button:active {
+               transform: scale(0.98);
+           }
+  
+          .controls #start-stop-btn {
+              background-color: var(--primary-color);
+              color: var(--bg-color);
+              font-weight: bold;
+          }
+          .controls #start-stop-btn.running {
+               background-color: #c94c4c; /* 运行时显示停止按钮用红色 */
+               color: var(--text-color);
+          }
+  
+  
+          .controls #start-stop-btn:hover {
+              opacity: 0.9;
+          }
+  
+          .controls input[type="number"] {
+              width: 70px; /* Slightly smaller width */
+              background-color: var(--secondary-color);
+              color: var(--text-color);
+              text-align: center;
+              border: 1px solid #5a5a5a;
+               padding: 10px 5px; /* Adjust padding */
+          }
+           /* 隐藏 input number 的小箭头 (部分浏览器) */
+          .controls input[type=number]::-webkit-inner-spin-button,
+          .controls input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+          }
+          .controls input[type=number] {
+            -moz-appearance: textfield; /* Firefox */
+          }
+  
+  
+          .controls input[type="file"] {
+              display: none; /* 隐藏原始文件输入 */
+          }
+          .controls input[type="checkbox"] {
+               width: 18px; /* Style checkbox */
+               height: 18px;
+               margin-right: 5px;
+               cursor: pointer;
+          }
+  
+          .controls .upload-label {
+              background-color: var(--secondary-color);
+              color: var(--text-color);
+              display: inline-block; /* 使其像按钮一样 */
+          }
+          .controls .upload-label:hover {
+              background-color: #5a5a5a;
+          }
+  
+          .controls label[for="loop-timer"] {
+              padding: 0; /* Remove padding from label */
+              display: inline-flex; /* Align checkbox and text */
+              align-items: center;
+          }
+  
+          #status {
+              margin-top: 20px;
+              font-size: 0.9em;
+              min-height: 1.2em; /* 防止内容跳动 */
+              color: var(--primary-color);
+          }
+  
+          audio {
+              display: none; /* 隐藏音频播放器 */
+          }
+  
+      </style>
+  </head>
+  <body>
+      <div class="container">
+          <h1>禅意计时器</h1>
+          <div id="timer-display">00:00:00</div>
+  
+          <div class="controls">
+              <button data-minutes="15">15 分钟</button>
+              <button data-minutes="30">30 分钟</button>
+              <button data-minutes="60">1 小时</button>
+              <input type="number" id="custom-minutes" placeholder="分钟" min="1">
+          </div>
+  
+          <div class="controls">
+              <button id="start-stop-btn">开始</button>
+              <label for="sound-upload" class="upload-label">上传提示音</label>
+              <input type="file" id="sound-upload" accept="audio/*">
+              <label for="loop-timer">
+                  <input type="checkbox" id="loop-timer">循环播放
+              </label>
+          </div>
+  
+           <div id="status">选择时间或上传声音</div>
+      </div>
+  
+      <audio id="alarm-sound" src="${defaultBeep}"></audio>
+  
+      <script>
+          const timerDisplay = document.getElementById('timer-display');
+          const presetButtons = document.querySelectorAll('.controls button[data-minutes]');
+          const customMinutesInput = document.getElementById('custom-minutes');
+          const startStopBtn = document.getElementById('start-stop-btn');
+          const soundUploadInput = document.getElementById('sound-upload');
+          const alarmSound = document.getElementById('alarm-sound');
+          const statusDiv = document.getElementById('status');
+          const loopCheckbox = document.getElementById('loop-timer'); // Get checkbox reference
+  
+          let timerInterval = null;
+          let endTime = 0;
+          let isTimerRunning = false;
+          let isLoopingEnabled = false; // State for looping
+          let currentTimerDurationMinutes = 0; // Store the last used duration for looping
+          let audioContext; // For ensuring audio plays after interaction
+          let customAudioURL = null; // To store Blob URL
+  
+          // Initialize AudioContext on first user interaction
+          function initAudioContext() {
+              if (!audioContext) {
+                  try {
+                      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                       if (audioContext.state === 'suspended') {
+                           audioContext.resume();
+                       }
+                  } catch (e) {
+                      console.error("Web Audio API is not supported in this browser.", e);
+                      statusDiv.textContent = "浏览器不支持音频播放。";
+                  }
+              }
+               if (audioContext && audioContext.state === 'suspended') {
+                   audioContext.resume();
+               }
+          }
+  
+          // Format time remaining (ms) into HH:MM:SS
+          function formatTime(ms) {
+              if (ms < 0) ms = 0;
+              const totalSeconds = Math.round(ms / 1000);
+              const hours = Math.floor(totalSeconds / 3600);
+              const minutes = Math.floor((totalSeconds % 3600) / 60);
+              const seconds = totalSeconds % 60;
+              return \`\${String(hours).padStart(2, '0')}:\${String(minutes).padStart(2, '0')}:\${String(seconds).padStart(2, '0')}\`;
+          }
+  
+          // Update the timer display every second
+          function updateTimer() {
+              const remainingTime = endTime - Date.now();
+              timerDisplay.textContent = formatTime(remainingTime);
+  
+              if (remainingTime <= 0) {
+                  clearInterval(timerInterval); // Stop the current interval
+                  timerInterval = null;
+                  // isTimerRunning = false; // Don't set to false yet if looping
+  
+                  playSound(); // Play sound first
+                  document.body.style.backgroundColor = '#f4a261'; // Change background briefly
+                  setTimeout(() => document.body.style.backgroundColor = 'var(--bg-color)', 1000);
+  
+                  if (isLoopingEnabled && currentTimerDurationMinutes > 0) {
+                      statusDiv.textContent = "时间到！开始下一轮...";
+                      // Keep button as "Stop" and inputs disabled
+                      // Restart the timer immediately with the same duration
+                      // Add a small delay to allow sound to potentially start playing
+                      setTimeout(() => startTimer(currentTimerDurationMinutes, true), 100);
+                  } else {
+                      // Not looping or no valid duration stored, so stop completely
+                      isTimerRunning = false;
+                      timerDisplay.textContent = "00:00:00";
+                      statusDiv.textContent = "时间到！";
+                      startStopBtn.textContent = "开始";
+                      startStopBtn.classList.remove('running');
+                      enableInputs();
+                  }
+              }
+          }
+  
+          // Play the alarm sound
+          function playSound() {
+               initAudioContext(); // Ensure context is active
+               alarmSound.currentTime = 0; // Reset sound to beginning
+               alarmSound.play().catch(error => {
+                   console.error("Audio playback failed:", error);
+                   if (error.name === 'NotAllowedError') {
+                        statusDiv.textContent = "时间到! (点击页面以播放声音)";
+                        document.body.addEventListener('click', () => alarmSound.play(), { once: true });
+                   } else {
+                        statusDiv.textContent = "时间到! (音频播放错误)";
+                   }
+               });
+          }
+  
+          // Start the timer with a given duration in minutes
+          // Added 'isLoopRestart' flag to differentiate manual start vs loop restart
+          function startTimer(minutes, isLoopRestart = false) {
+              // Only validate and store duration on manual start
+              if (!isLoopRestart) {
+                   if (minutes <= 0 || isNaN(minutes)) {
+                      statusDiv.textContent = "请输入有效的分数。";
+                      return;
+                  }
+                  if (isTimerRunning) {
+                      stopTimer(true); // Stop existing timer cleanly before starting new one
+                  }
+                   currentTimerDurationMinutes = minutes; // Store duration only on manual start/preset click
+              }
+  
+              // Ensure minutes is valid even for loop restart
+               if (minutes <= 0 || isNaN(minutes)) {
+                   console.error("Loop restart attempted with invalid duration:", minutes);
+                   stopTimer(); // Stop completely if duration became invalid
+                   statusDiv.textContent = "无法循环：无效时间";
+                   return;
+               }
+  
+  
+              initAudioContext(); // Initialize audio context on start if not already done
+              const durationMs = minutes * 60 * 1000;
+              endTime = Date.now() + durationMs;
+              isTimerRunning = true;
+              statusDiv.textContent = isLoopingEnabled ? "计时中 (循环模式)" : "计时中...";
+              startStopBtn.textContent = "停止";
+              startStopBtn.classList.add('running');
+              disableInputs();
+  
+              updateTimer(); // Update immediately
+              timerInterval = setInterval(updateTimer, 1000);
+          }
+  
+          // Stop the timer
+          // Added 'silent' flag to avoid status update when called internally by startTimer
+          function stopTimer(silent = false) {
+              if (timerInterval) {
+                  clearInterval(timerInterval);
+                  timerInterval = null;
+              }
+              isTimerRunning = false;
+              // Don't reset currentTimerDurationMinutes here, keep it for potential loop start
+              timerDisplay.textContent = "00:00:00";
+              if (!silent) {
+                  statusDiv.textContent = "计时已停止。";
+              }
+              startStopBtn.textContent = "开始";
+              startStopBtn.classList.remove('running');
+              enableInputs();
+               // Optional: Revoke audio URL on explicit stop? Maybe not, user might want to restart.
+               // if (customAudioURL) {
+               //     URL.revokeObjectURL(customAudioURL);
+               //     customAudioURL = null;
+               // }
+          }
+  
+          // Disable inputs while timer is running
+          function disableInputs() {
+               presetButtons.forEach(btn => btn.disabled = true);
+               customMinutesInput.disabled = true;
+               soundUploadInput.disabled = true;
+               document.querySelector('.upload-label').style.opacity = 0.5;
+               document.querySelector('.upload-label').style.cursor = 'not-allowed';
+               // loopCheckbox.disabled = true; // Option: disable loop change while running? Maybe allow it.
+          }
+  
+          // Enable inputs when timer is stopped/reset
+          function enableInputs() {
+               presetButtons.forEach(btn => btn.disabled = false);
+               customMinutesInput.disabled = false;
+               soundUploadInput.disabled = false;
+                document.querySelector('.upload-label').style.opacity = 1;
+               document.querySelector('.upload-label').style.cursor = 'pointer';
+               // loopCheckbox.disabled = false;
+          }
+  
+  
+          // --- Event Listeners ---
+  
+          // Preset buttons
+          presetButtons.forEach(button => {
+              button.addEventListener('click', () => {
+                  const minutes = parseInt(button.getAttribute('data-minutes'), 10);
+                  customMinutesInput.value = ''; // Clear custom input
+                  startTimer(minutes);
+              });
+          });
+  
+          // Start/Stop button
+          startStopBtn.addEventListener('click', () => {
+              if (isTimerRunning) {
+                  stopTimer();
+              } else {
+                  let minutes = parseInt(customMinutesInput.value, 10);
+                   // If custom input is invalid or empty, try to use the stored duration (if any)
+                   if (isNaN(minutes) || minutes <= 0) {
+                       minutes = currentTimerDurationMinutes > 0 ? currentTimerDurationMinutes : NaN; // Use last valid duration if available
+                   }
+  
+                  if (!isNaN(minutes) && minutes > 0) {
+                      startTimer(minutes);
+                  } else {
+                       statusDiv.textContent = "请先设置预设或自定义时间。";
+                       // Maybe default to 15 mins if nothing is set?
+                       // startTimer(15);
+                  }
+              }
+          });
+  
+          // Loop checkbox
+          loopCheckbox.addEventListener('change', () => {
+              isLoopingEnabled = loopCheckbox.checked;
+               if (isTimerRunning) { // Update status immediately if timer is running
+                   statusDiv.textContent = isLoopingEnabled ? "计时中 (循环模式)" : "计时中...";
+               } else {
+                    statusDiv.textContent = isLoopingEnabled ? "循环模式已开启" : "循环模式已关闭";
+               }
+          });
+  
+  
+          // Custom sound upload
+          soundUploadInput.addEventListener('change', (event) => {
+              const file = event.target.files[0];
+              if (file && file.type.startsWith('audio/')) {
+                  initAudioContext(); // Ensure context is active for loading
+                   if (customAudioURL) {
+                      URL.revokeObjectURL(customAudioURL); // Revoke previous blob URL
+                   }
+  
+                  customAudioURL = URL.createObjectURL(file);
+                  alarmSound.src = customAudioURL;
+                  statusDiv.textContent = \`提示音已加载: \${file.name}\`;
+              } else if (file) {
+                  statusDiv.textContent = "请上传有效的音频文件。";
+              }
+          });
+  
+           // Initialize display and state
+           timerDisplay.textContent = formatTime(0);
+           isLoopingEnabled = loopCheckbox.checked; // Set initial loop state from checkbox default (off)
+           enableInputs(); // Ensure inputs are enabled on load
+  
+      </script>
+  </body>
+  </html>
+  `;
+  
+  /**
+   * Handles the incoming request and returns the HTML response.
+   * @param {Request} request
+   */
+  async function handleRequest(request) {
+    // Only serve the HTML for GET requests to the root path
+    if (request.method === "GET") {
+      const url = new URL(request.url);
+      if (url.pathname === "/") {
+        return new Response(htmlContent, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
+    }
+  
+    // For other paths or methods, return a 404 or other appropriate response
+    return new Response("Not Found", { status: 404 });
+  }
